@@ -1,0 +1,26 @@
+[tool.poetry]
+name = "kakaochatbot"
+version = "0.1.0"
+description = ""
+authors = ["ccw7463 <ccw7463@example.com>"]
+readme = "README.md"
+
+# 포함할 패키지 지정
+packages = [
+    { include = "utils" },
+    { include = "notebooks" }
+]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+flask = "^3.1.0"
+ipykernel = "^6.29.5"
+flask-caching = "^2.3.0"
+apscheduler = "^3.11.0"
+openai = "^1.58.1"
+tiktoken = "^0.8.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
