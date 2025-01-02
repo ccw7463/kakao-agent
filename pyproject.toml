@@ -19,6 +19,9 @@ flask-caching = "^2.3.0"
 apscheduler = "^3.11.0"
 openai = "^1.58.1"
 tiktoken = "^0.8.0"
+python-dotenv = "^1.0.1"
+loguru = "^0.7.3"
+ngrok = "^1.4.0"
 
 
 [build-system]
