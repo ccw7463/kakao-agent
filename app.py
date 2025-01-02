@@ -116,7 +116,7 @@ def kakao_response_button():
 @app.route("/api/chatgpt", methods=["POST"])
 def chatgpt():
     start_time = time.time()
-
+    print(f"start_time: {start_time}")
     body = request.get_json()
     user_id = body["userRequest"]["user"]["id"]
     user_text = body["userRequest"]["utterance"].strip()
