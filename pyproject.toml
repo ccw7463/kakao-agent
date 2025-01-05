@@ -22,6 +22,17 @@ tiktoken = "^0.8.0"
 python-dotenv = "^1.0.1"
 loguru = "^0.7.3"
 ngrok = "^1.4.0"
+fastapi = "^0.115.6"
+uvicorn = "^0.34.0"
+langchain-openai = "^0.2.14"
+langgraph = "^0.2.60"
+bs4 = "^0.0.2"
+ml-collections = "^1.0.0"
+selenium = "^4.27.1"
+webdriver-manager = "^4.0.2"
+feedparser = "^6.0.11"
+langchain-community = "^0.3.14"
+html2text = "^2024.2.26"
 
 
 [build-system]

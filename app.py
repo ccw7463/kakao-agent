@@ -1,253 +1,61 @@
+from fastapi import FastAPI, Request, BackgroundTasks
+from fastapi.responses import JSONResponse
 import os
-import time
-import logging
-import traceback
-from threading import Thread
-from flask import Flask, request, jsonify
-import atexit
-from flask_caching import Cache
-from apscheduler.schedulers.background import BackgroundScheduler
 import openai
-from utils.util import num_tokens_from_messages
 from dotenv import load_dotenv
-from loguru import logger
-load_dotenv()
-
-
-NUM_MAX_TOKEN = 4096
-KAKAO_API_TIMEOUT = 5
-WAIT_TIME = KAKAO_API_TIMEOUT - 0.5  # chatgpt 응답 기다리는 시간
-openai.api_key = os.getenv("OPENAI_API_KEY")
+import asyncio
 from openai import OpenAI
+load_dotenv()
+openai.api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI()
+app = FastAPI()
+user_responses = {}
 
-
-config = {
-    "DEBUG": True,
-    "CACHE_TYPE": "FileSystemCache",
-    "CACHE_DEFAULT_TIMEOUT": 60 * 30,
-    "CACHE_THRESHOLD": 10000,
-    "CACHE_DIR": "cache",
-}
-
-app = Flask(__name__)
-app.config.from_mapping(config)
-cache = Cache(app)
-scheduler = BackgroundScheduler()
-scheduler.add_job(func=cache.clear, trigger="interval", minutes=30)
-scheduler.start()
-atexit.register(lambda: scheduler.shutdown()) # Shut down when exiting the app
-
-# TODO : 나 테스트용
-@app.route("/api/test", methods=["POST"])
-def test():
-    start_time = time.time()
-    print(f"start_time: {start_time}")
-    body = request.get_json()
-    user_id = body["userRequest"]["user"]["id"]
-    user_text = body["userRequest"]["utterance"].strip()
-    print(f"user_id: {user_id}, user_text: {user_text}")
-    return jsonify({"message": "test"})
-
-# TODO : 나 테스트용
-def gpt_api_test(prompt):
-    try:
-        logger.info("gpt_api_test")
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "developer", "content": "You are a helpful assistant."},
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        app.logger.error(f"GPT API Test Error: {e}\n{traceback.format_exc()}")
-        return "[ERROR] GPT API call failed."
-    
-# TODO : 나 테스트용
-@app.route("/api/gpt-test", methods=["POST"])
-def gpt_test():
-    body = request.get_json()
-    user_text = body["userRequest"]["utterance"].strip()
-    if not user_text:
-        return jsonify({"error": "Prompt is required."}), 400
-    gpt_response = gpt_api_test(user_text)
-    return jsonify({"response": gpt_response})
-
-
-# TODO : 나 테스트용
-def init_user_messages(user_id):
-    system_prompts = [
-        {"role": "developer", "content": "당신은 카카오톡에서 대화하는 chatgpt 기반의 친절한 봇입니다."}
-    ]
-    cache.set(f"{user_id}-messages", system_prompts)
-
-def kakao_response_text(text):
-    # https://i.kakao.com/docs/skill-response-format#simpletext
+def make_kakao_response(text: str) -> dict:
     return {
         "version": "2.0",
         "template": {"outputs": [{"simpleText": {"text": text}}]},
     }
 
-@app.route("/api/chatgpttest", methods=["POST"])
-def chatgpttest():
-    start_time = time.time()
-    body = request.get_json()
-    user_id = body["userRequest"]["user"]["id"]
-    user_text = body["userRequest"]["utterance"].strip()
-    user_info = cache.get(user_id)
-    logger.info("============================")
-    logger.info(f"start_time: {start_time}")
-    logger.info(f"user_id: {user_id}, user_text: {user_text}")
-    logger.info(f"user_info: {user_info}")
-    logger.info("============================") 
-    response = gpt_api_test(user_text)
-    response = kakao_response_text(response)
-    return response
+async def get_gpt_response(prompt: str) -> str:
+    try:
+        add_prompt = "자세하게 답변하라는 요청이 없다면, 최대한 간단하게 핵심내용만 생성하라." # TODO 향후 수정필요
+        response = await asyncio.to_thread(
+            client.chat.completions.create,
+            model="gpt-4",
+            messages=[
+                {"role": "developer", "content": "You are a helpful assistant."},
+                {"role": "user", "content": f"{prompt} {add_prompt}"},
+            ],
+        )
+        return response.choices[0].message.content
+    except:
+        return "GPT 답변 호출도중 에러가 발생했습니다."
 
-# def run_chat_gpt(messages, user_id):
-#     gpt_message = None
-#     try:
-#         logger.info(f"messages: {messages}")
-#         gpt_message = gpt_api_test(messages)
-#         logger.info(f"gpt_message: {gpt_message}")
-#         cache.set(f"{user_id}-response", gpt_message)
+@app.post("/question")
+async def handle_question(request: Request, background_tasks: BackgroundTasks):
+    data = await request.json()
+    user_id = data["userRequest"]["user"]["id"]
+    user_question = data["action"]["params"]["question"].strip()
+    response_message = "질문을 받았습니다. AI에게 물어보고 올게요!"
+    response = make_kakao_response(response_message)
+    async def fetch_and_store_response():
+        gpt_response = await get_gpt_response(user_question)
+        print(gpt_response)
+        user_responses[user_id] = gpt_response
 
-#         # messages 캐시에 저장하기
-#         messages_cache = cache.get(f"{user_id}-messages")
-#         if messages_cache is not None:
-#             messages_cache.append({"role": "assistant", "content": gpt_message})
-#             cache.set(f"{user_id}-messages", messages_cache)
+    background_tasks.add_task(fetch_and_store_response)
 
-#     except Exception as e:
-#         app.logger.error(f"run_chat_gpt error {e}\n{traceback.format_exc()}")
+    return JSONResponse(response)
 
-#     if gpt_message is None:
-#         cache.set(f"{user_id}-response", "[ERROR]")
-        
-# def kakao_response_button():
-#     # https://i.kakao.com/docs/skill-response-format#quickreplies
-#     return {
-#         "version": "2.0",
-#         "template": {
-#             "outputs": [{"simpleText": {"text": "답변을 준비하고 있습니다."}}],
-#             "quickReplies": [
-#                 {"messageText": "답변 확인 하기", "action": "message", "label": "답변 확인 하기"},
-#             ],
-#         },
-#     }
-    
-
-# def update_messages(user_id, user_text):
-#     """
-#     messages example:
-#     messages = [
-#         {"role": "system", "content": "You are a helpful assistant."},
-#         {"role": "user", "content": "Who won the world series in 2020?"},
-#         {"role": "assistant", "content": "The Los Angeles Dodgers won the World Series in 2020."},
-#         {"role": "user", "content": "Where was it played?"}
-#     ]
-#     """
-#     new_message = {"role": "user", "content": user_text}
-#     messages = cache.get(f"{user_id}-messages")  # 이전 메세지 가져오기
-#     messages.append(new_message)  # 새로운 메세지 추가
-#     while True:
-#         num_tokens = num_tokens_from_messages(messages)
-#         if num_tokens > NUM_MAX_TOKEN:
-#             messages.pop(1)
-#         else:
-#             break
-
-#     cache.set(f"{user_id}-messages", messages)  # 캐시 저장하기
-#     return messages, num_tokens
-
-# @app.route("/api/chatgpt", methods=["POST"])
-# def chatgpt():
-#     start_time = time.time()
-#     body = request.get_json()
-#     user_id = body["userRequest"]["user"]["id"]
-#     user_text = body["userRequest"]["utterance"].strip()
-#     user_info = cache.get(user_id)
-#     logger.info("============================")
-#     logger.info(f"start_time: {start_time}")
-#     logger.info(f"user_id: {user_id}, user_text: {user_text}")
-#     logger.info(f"user_info: {user_info}")
-#     logger.info("============================") 
-#     if user_info is None:
-#         # print(f"새로운 유저 init cache: {user_id}")
-#         cache.set(user_id, {"user_id": user_id, "chat_limit": 100})  # TODO: limit 구현
-#         cache.set(f"{user_id}-response", "[INIT]")
-#         init_user_messages(user_id)
-
-#     if user_text == "답변 확인 하기":
-#         logger.info("답변 확인 하기")
-#         gpt_message = cache.get(f"{user_id}-response")
-#         if gpt_message == "[RUNNING]":
-#             while True:  # 최대 WAIT_TIME 만큼 답변 기다리기
-#                 gpt_message = cache.get(f"{user_id}-response")
-#                 if (gpt_message != "[RUNNING]") or (time.time() - start_time >= WAIT_TIME):
-#                     break
-#                 time.sleep(0.2)
-
-#         if gpt_message == "[RUNNING]":
-#             response = kakao_response_button()
-#         elif gpt_message == "[INIT]":
-#             response = kakao_response_text("질문을 입력 해주세요.")
-#         elif gpt_message == "[ERROR]":
-#             response = kakao_response_text("오류가 발생하였습니다.")
-#         else:
-#             response = kakao_response_text(gpt_message)
-
-#     elif user_text == "새로운 대화":
-#         logger.info("새로운 대화")
-#         init_user_messages(user_id)
-#         response = kakao_response_text("새로운 대화를 시작합니다.")
-
-#     else:
-#         logger.info("대화 진행")
-#         if cache.get(f"{user_id}-response") == "[RUNNING]":
-#             response = kakao_response_button()
-#             return response
-#         logger.info("대화 진행 2")
-#         messages, num_tokens = update_messages(user_id, user_text)
-#         if num_tokens > NUM_MAX_TOKEN:
-#             response = kakao_response_text("너무 긴 입력입니다. 다시 입력해주세요.")
-#             init_user_messages(user_id)
-#             return response
-
-#         # run chat gpt
-#         logger.info("run chat gpt")
-#         cache.set(f"{user_id}-response", "[RUNNING]")
-#         thread = Thread(target=run_chat_gpt, args=(messages, user_id))
-#         thread.daemon = True
-#         thread.start()
-
-#         logger.info("wait chat gpt")
-#         while True:  # 최대 WAIT_TIME 만큼 답변 기다리기
-#             gpt_message = cache.get(f"{user_id}-response")
-#             if (gpt_message != "[RUNNING]") or (time.time() - start_time >= WAIT_TIME):
-#                 break
-#             time.sleep(0.2)
-
-#         if gpt_message == "[RUNNING]":
-#             logger.info("gpt_message == [RUNNING]")
-#             response = kakao_response_button()  # "답변을 준비하고 있습니다" 버튼
-#         else:
-#             logger.info("gpt_message != [RUNNING]")
-#             response = kakao_response_text(gpt_message)  # chatgpt 답변
-
-#     return response
-
+@app.post("/ans")
+async def get_answer(request: Request):
+    data = await request.json()
+    user_id = data["userRequest"]["user"]["id"]
+    gpt_response = user_responses.get(user_id, "질문을 못 받았어요. 다시 물어봐 주세요!")
+    response = make_kakao_response(gpt_response)
+    return JSONResponse(response)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=7860)
-    # app.run(host="0.0.0.0", port=7860, threaded=True)
-
-# else:
-#     gunicorn_logger = logging.getLogger("gunicorn.error")
-#     app.logger.handlers = gunicorn_logger.handlers
-#     app.logger.setLevel(gunicorn_logger.level)
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=7860)
