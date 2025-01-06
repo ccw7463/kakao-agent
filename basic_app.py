@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
 import os
+import json
 import openai
 from dotenv import load_dotenv
 import asyncio
@@ -10,7 +11,6 @@ load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI()
 app = FastAPI()
-user_responses = {}
 
 def make_kakao_response(text: str) -> dict:
     return {
@@ -53,30 +53,7 @@ async def handle_question(request: Request, background_tasks: BackgroundTasks):
         "version": "2.0",
         "useCallback": True,
     })
-
-
-# @app.post("/question")
-# async def handle_question_without_callback(request: Request, background_tasks: BackgroundTasks):
-#     data = await request.json()
-#     user_id = data["userRequest"]["user"]["id"]
-#     user_question = data["action"]["params"]["question"].strip()
-#     response_message = "질문을 받았습니다. AI에게 물어보고 올게요!"
-#     response = make_kakao_response(response_message)
-#     async def fetch_and_store_response():
-#         gpt_response = await get_gpt_response(user_question)
-#         print(gpt_response)
-#         user_responses[user_id] = gpt_response
-#     background_tasks.add_task(fetch_and_store_response)
-#     return JSONResponse(response)
-
-# @app.post("/ans")
-# async def get_answer(request: Request):
-#     data = await request.json()
-#     user_id = data["userRequest"]["user"]["id"]
-#     gpt_response = user_responses.get(user_id, "질문을 못 받았어요. 다시 물어봐 주세요!")
-#     response = make_kakao_response(gpt_response)
-#     return JSONResponse(response)
-
+    
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=7860)
