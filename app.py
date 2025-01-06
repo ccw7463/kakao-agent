@@ -4,6 +4,7 @@ import os
 import openai
 from dotenv import load_dotenv
 import asyncio
+import httpx
 from openai import OpenAI
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -16,45 +17,65 @@ def make_kakao_response(text: str) -> dict:
         "version": "2.0",
         "template": {"outputs": [{"simpleText": {"text": text}}]},
     }
-
-async def get_gpt_response(prompt: str) -> str:
+    
+async def get_gpt_response(question: str) -> str:
     try:
-        add_prompt = "자세하게 답변하라는 요청이 없다면, 최대한 간단하게 핵심내용만 생성하라." # TODO 향후 수정필요
         response = await asyncio.to_thread(
             client.chat.completions.create,
-            model="gpt-4",
+            model="gpt-4o",
             messages=[
-                {"role": "developer", "content": "You are a helpful assistant."},
-                {"role": "user", "content": f"{prompt} {add_prompt}"},
+                {"role": "system", "content": "당신의 이름은 '미네르바'이고 카카오톡에서 활동하는 챗봇입니다. 당신은 사용자의 질문과 요청에 친절하게 응답합니다. 가능한 핵심적인 내용만을 전달하세요. 적절한 이모티콘을 사용해도 좋습니다."},
+                {"role": "user", "content": f"{question}"},
             ],
         )
         return response.choices[0].message.content
-    except:
-        return "GPT 답변 호출도중 에러가 발생했습니다."
+    except Exception as e:
+        return f"GPT 답변 호출 도중 에러가 발생했습니다: {e}"
+
+async def send_to_callback(callback_url: str, response_data: dict):
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(callback_url, json=response_data)
+    except Exception as e:
+        print(f"Callback URL 전송 중 에러 발생: {e}")
 
 @app.post("/question")
 async def handle_question(request: Request, background_tasks: BackgroundTasks):
     data = await request.json()
-    user_id = data["userRequest"]["user"]["id"]
-    user_question = data["action"]["params"]["question"].strip()
-    response_message = "질문을 받았습니다. AI에게 물어보고 올게요!"
-    response = make_kakao_response(response_message)
-    async def fetch_and_store_response():
-        gpt_response = await get_gpt_response(user_question)
-        print(gpt_response)
-        user_responses[user_id] = gpt_response
+    user_request = data.get("userRequest")
+    callback_url = user_request.get("callbackUrl")
+    question = user_request.get("utterance").strip()
+    gpt_response = await get_gpt_response(question=question)
+    kakao_response = make_kakao_response(gpt_response)
+    if callback_url:
+        background_tasks.add_task(send_to_callback, callback_url, kakao_response)
+    return JSONResponse({
+        "version": "2.0",
+        "useCallback": True,
+    })
 
-    background_tasks.add_task(fetch_and_store_response)
 
-    return JSONResponse(response)
+# @app.post("/question")
+# async def handle_question_without_callback(request: Request, background_tasks: BackgroundTasks):
+#     data = await request.json()
+#     user_id = data["userRequest"]["user"]["id"]
+#     user_question = data["action"]["params"]["question"].strip()
+#     response_message = "질문을 받았습니다. AI에게 물어보고 올게요!"
+#     response = make_kakao_response(response_message)
+#     async def fetch_and_store_response():
+#         gpt_response = await get_gpt_response(user_question)
+#         print(gpt_response)
+#         user_responses[user_id] = gpt_response
+#     background_tasks.add_task(fetch_and_store_response)
+#     return JSONResponse(response)
 
-@app.post("/ans")
-async def get_answer(request: Request):
-    data = await request.json()
-    user_id = data["userRequest"]["user"]["id"]
-    gpt_response = user_responses.get(user_id, "질문을 못 받았어요. 다시 물어봐 주세요!")
-    response = make_kakao_response(gpt_response)
-    return JSONResponse(response)
+# @app.post("/ans")
+# async def get_answer(request: Request):
+#     data = await request.json()
+#     user_id = data["userRequest"]["user"]["id"]
+#     gpt_response = user_responses.get(user_id, "질문을 못 받았어요. 다시 물어봐 주세요!")
+#     response = make_kakao_response(gpt_response)
+#     return JSONResponse(response)
 
 if __name__ == "__main__":
     import uvicorn
