@@ -19,7 +19,8 @@ class ChatbotAgent:
                                question: str) -> str:
         if question == "새로운 대화":
             self._build_graph()
-        question = HumanMessage(content="안녕하세요~")
+            question = "안녕하세요~"
+        question = HumanMessage(content=question)
         return self._call_graph([question])["messages"][-1].content
     
     def set_config(self,
