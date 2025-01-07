@@ -8,7 +8,9 @@ readme = "README.md"
 # 포함할 패키지 지정
 packages = [
     { include = "utils" },
-    { include = "notebooks" }
+    { include = "notebooks" },
+    { include = "configs" },
+    { include = "modules" }
 ]
 
 [tool.poetry.dependencies]
