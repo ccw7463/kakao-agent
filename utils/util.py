@@ -61,6 +61,7 @@ def extract_content(link:str) -> tuple[str, str]:
     detailed_content = docs_transformed[0].page_content
     return desc,detailed_content
 
+
 def google_search_scrape(query:str, 
                          num_results:int=3) -> list:
     """
@@ -83,5 +84,7 @@ def google_search_scrape(query:str,
     for g in soup.find_all("div", class_="tF2Cxc"):
         title = g.find("h3").text.upper()
         link = g.find("a")["href"]
+        if link.endswith(".pdf"):
+            continue
         results.append({"title": title, "link": link})
     return results

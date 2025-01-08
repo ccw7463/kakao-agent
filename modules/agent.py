@@ -9,15 +9,18 @@ class State(MessagesState):
 class ChatbotAgent:
     def __init__(self):
         self.LIMIT_LENGTH = 10
-        self.system_prompt = "당신의 이름은 '미네르바'이고 카카오톡에서 활동하는 챗봇입니다. 'ccw'님이 관리하고 있는 챗봇입니다. 당신은 사용자의 질문과 요청에 친절하게 응답합니다. 가능한 핵심적인 내용만을 전달하세요. 웃는 이모지를 사용하여 친절하게 답변하세요.\n"
-        self.llm = ChatOpenAI(model="gpt-4o")
+        self.SEARCH_RETRY_COUNT = 5
+        self.SEARCH_RESULT_COUNT = 4
+        self.SEARCH_MINIMUM_RESULT = 1
+        self.system_prompt = prompt_config.system_message
+        self.llm = ChatOpenAI(model="gpt-4o") # TODO api key 입력받는 형태로 변경필요
         self.config = {"configurable": {"thread_id": "default",
                                         "user_id": "default"}}
         self._build_graph()
         
     async def get_gpt_response(self,
                                question: str) -> str:
-        if question == "새로운 대화":
+        if "새로운 대화 시작할래요!" in question:
             self._build_graph()
             question = "안녕하세요~"
         question = HumanMessage(content=question)
@@ -113,24 +116,34 @@ class ChatbotAgent:
     @trace_function(enable_print=False, only_node=True)
     def _Node_decide_search(self,
                            state: State):
-        system_message = "현재 사용자 요청문이 뉴스 검색이 필요한지 판단하세요. 답변은 무조건 YES 또는 NO로 출력하세요."
-        return {"is_search": [self.llm.invoke([SystemMessage(content=system_message)] + state["messages"])][0].content.upper()}
+        """
+            Des:
+                검색 여부를 결정하는 노드
+        """
+        return {"is_search": [self.llm.invoke([SystemMessage(content=prompt_config.decide_search_prompt)] + state["messages"])][0].content.upper()}
 
     @trace_function(enable_print=False, only_node=True)
     def _Node_search(self,
                     state: State):
+        """
+            Des:
+                검색 정보 생성 노드
+        """
         query = state['messages'][-1].content # TODO humanmessage 인지 체크필요
         prompt = prompt_config.generate_search_info.format(query=query)
         search_info = self.llm.invoke(prompt).content
-        results = google_search_scrape(search_info, num_results=3)
-        print(f"{RED}검색어 : {search_info}{RESET}")
-        print(f"{RED}검색결과 : {len(results)}{RESET}")
-        # TODO 결과없을때 처리필요
+        for _ in range(self.SEARCH_RETRY_COUNT):
+            results = google_search_scrape(search_info, num_results=self.SEARCH_RESULT_COUNT)
+            if len(results) >= self.SEARCH_MINIMUM_RESULT:
+                break
+        print(f"{RED}검색어 : {search_info}\n검색결과 : {len(results)}\n{RESET}")
         main_context = ''
         suffix_context = ''
         for idx, result in enumerate(results):
             link = result.get("link")
             desc, detailed_content = extract_content(link)
+            if "Enable JavaScript and cookies" in detailed_content:
+                continue # TODO 처리필요
             main_context += f"제목 : {result.get('title')}\n링크 : {link}\n설명 : {desc}\n내용 : {detailed_content}\n\n"    
             suffix_context += f"""
 📌 참고내용 [{idx+1}]
@@ -140,9 +153,23 @@ class ChatbotAgent:
 """
         return {"main_context": main_context, "suffix_context": suffix_context}
 
-
+    def _decide_search(self,
+                       state: State):
+        """
+            Des:
+                검색 여부를 결정하는 함수
+        """
+        if "YES" in state["is_search"]:
+            return "_Node_search"
+        else:
+            return "_Node_answer"
+        
     def _check_memory_length(self,
                              state: State):
+        """
+            Des:
+                메모리 길이 체크 함수
+        """
         if len(state["messages"]) > self.LIMIT_LENGTH:
             return "_Node_optimize_memory"
         else:
@@ -162,13 +189,11 @@ class ChatbotAgent:
 
     def _call_graph(self, 
                     messages):
+        """
+            Des:
+                그래프 호출 함수
+        """
         return self.graph.invoke({"messages": messages}, 
                                  config=self.config)
 
     
-    def _decide_search(self,
-                       state: State):
-        if "YES" in state["is_search"]:
-            return "_Node_search"
-        else:
-            return "_Node_answer"

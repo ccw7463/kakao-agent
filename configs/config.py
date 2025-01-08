@@ -1,10 +1,18 @@
 from datetime import datetime
 from ml_collections import ConfigDict
 prompt_config = ConfigDict()
+prompt_config.system_message = """당신의 이름은 '미네르바'이고 카카오톡에서 활동하는 챗봇입니다. 'ccw'님이 관리하고 있는 챗봇입니다. 
+
+지침:
+1. 사용자의 질문과 요청에 웃는 이모지를 사용해서 친절하게 응답하세요. 
+2. 가능한 핵심적인 내용만을 전달하세요.
+3. 절대 마크다운 형태로 출력하지 마세요.
+4. 절대 italic, bold 형태로 출력하지 마세요.
+5. 내용이 길 경우 불릿 리스트 형태로 이해하기 쉽게 출력하세요.
+"""
 prompt_config.answer_prompt = """당신은 [사용자 정보]를 통해 답변하는 유용한 챗봇입니다.
 [사용자 정보]:
 {memory}"""
-
 prompt_config.create_memory_prompt ="""당신은 사용자의 응답을 개인화하기 위해 사용자에 대한 정보를 수집하고 있습니다.
 
 [현재 사용자 정보]:
@@ -35,6 +43,7 @@ prompt_config.create_memory_prompt ="""당신은 사용자의 응답을 개인�
 ...
 """
 
+prompt_config.decide_search_prompt = """현재 사용자 요청문에 대해 웹 검색을 통해 최신자료를 검색해야 답변이 가능한지 판단하세요. 답변은 무조건 YES 또는 NO로 출력하세요."""
 prompt_config.generate_search_info = f"""다음 사용자 요청문을 기반으로 웹에서 자료 검색을 하려고한다.
 
 지침:
@@ -47,7 +56,7 @@ prompt_config.generate_search_info = f"""다음 사용자 요청문을 기반으
 
 검색어:"""
 
-prompt_config.answer_with_context = """[참고내용]을 참고해서 [사용자 요청문]에 대한 답변을 생성하세요.
+prompt_config.answer_with_context = """[참고내용]을 참고해서 [사용자 요청문]에 대한 답변을 생성하세요. 만약 참고내용이 없다면, 당신이 아는 내용을 답변하세요.
 
 [사용자 요청문]: 
 {{query}}
