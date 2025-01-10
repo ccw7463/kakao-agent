@@ -37,26 +37,26 @@ class ChatbotAgent:
                 그래프 생성함수
         """
         builder = StateGraph(State)
-        builder.add_node("_Node_decide_personal", self._Node_decide_personal)
-        builder.add_node("_Node_decide_preference", self._Node_decide_preference)
-        builder.add_node("_Node_decide_search", self._Node_decide_search)
-        builder.add_node("_Node_write_memory", self._Node_write_memory)
-        builder.add_node("_Node_answer", self._Node_answer)
-        builder.add_node("_Node_optimize_memory", self._Node_optimize_memory)
-        builder.add_edge(START, "_Node_decide_personal")
-        builder.add_edge(START, "_Node_decide_preference")
-        builder.add_edge(START, "_Node_decide_search")
-        builder.add_edge(["_Node_decide_personal", "_Node_decide_preference", "_Node_decide_search"], "_Node_write_memory")
-        builder.add_edge("_Node_write_memory", "_Node_answer")
-        builder.add_edge("_Node_answer", "_Node_optimize_memory")
-        builder.add_edge("_Node_optimize_memory", END)
+        builder.add_node("_node_decide_personal", self._node_decide_personal)
+        builder.add_node("_node_decide_preference", self._node_decide_preference)
+        builder.add_node("_node_decide_search", self._node_decide_search)
+        builder.add_node("_node_write_memory", self._node_write_memory)
+        builder.add_node("_node_answer", self._node_answer)
+        builder.add_node("_node_optimize_memory", self._node_optimize_memory)
+        builder.add_edge(START, "_node_decide_personal")
+        builder.add_edge(START, "_node_decide_preference")
+        builder.add_edge(START, "_node_decide_search")
+        builder.add_edge(["_node_decide_personal", "_node_decide_preference", "_node_decide_search"], "_node_write_memory")
+        builder.add_edge("_node_write_memory", "_node_answer")
+        builder.add_edge("_node_answer", "_node_optimize_memory")
+        builder.add_edge("_node_optimize_memory", END)
         ShortTermMemory = MemorySaver()
         LongTermMemory = InMemoryStore()
         self.graph = builder.compile(checkpointer=ShortTermMemory,
                                      store=LongTermMemory)
 
     @trace_function(enable_print=False, only_func_name=True)
-    def _Node_decide_personal(self, state: State):
+    def _node_decide_personal(self, state: State):
         """
             Des:
                 개인정보 여부가 있는지 판단하는 노드
@@ -66,7 +66,7 @@ class ChatbotAgent:
         return {"is_personal":[self.llm.invoke(prompt)][0].content.upper()}
 
     @trace_function(enable_print=False, only_func_name=True)
-    def _Node_decide_preference(self, state: State):
+    def _node_decide_preference(self, state: State):
         """
             Des:
                 답변 선호도 여부가 있는지 판단하는 노드
@@ -76,7 +76,7 @@ class ChatbotAgent:
         return {"is_preference":[self.llm.invoke(prompt)][0].content.upper()}
 
     @trace_function(enable_print=False, only_func_name=True)
-    def _Node_decide_search(self, state: State):
+    def _node_decide_search(self, state: State):
         """
             Des:
                 검색 여부를 결정하는 노드
@@ -86,7 +86,7 @@ class ChatbotAgent:
         return {"is_search":[self.llm.invoke(prompt)][0].content.upper()}
 
     @trace_function(enable_print=False, only_func_name=True)
-    def _Node_write_memory(self, state: State, 
+    def _node_write_memory(self, state: State, 
                             config: RunnableConfig, 
                             store: BaseStore):
         """
@@ -160,7 +160,7 @@ class ChatbotAgent:
         return main_context, suffix_context
         
     @trace_function(enable_print=False, only_func_name=True)
-    def _Node_answer(self, state: State, 
+    def _node_answer(self, state: State, 
                     config: RunnableConfig,
                     store: BaseStore):
         """
@@ -197,7 +197,7 @@ class ChatbotAgent:
             return {"messages": self._postprocess(self.llm.invoke(prompt).content)}
 
     @trace_function(enable_print=False, only_func_name=True)
-    def _Node_optimize_memory(self, 
+    def _node_optimize_memory(self, 
                               state: State):
         """
             Des:
