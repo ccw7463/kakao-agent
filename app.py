@@ -21,13 +21,27 @@ async def get_answer(agent: ChatbotAgent,
             kakao_callback_url: 카카오 콜백 URL
     """
     START_TIME = time.time()
-    gpt_response = await agent.get_gpt_response(question=question)
-    END_TIME = time.time()
-    logger.info(f"Length : {len(gpt_response)}")
-    logger.info(f"Generation Time : {END_TIME - START_TIME}")
+    if "새로운 대화 시작할래요!" in question:
+        agent._build_graph()
+        response = "안녕하세요🤗 무엇을 도와드릴까요?"    
+    elif ("사용법" == question) or ("사용법 안내" in question):
+        response = """사용법에 대해 간략히 알려드릴게요!
+
+궁금하거나 도움이 필요한 내용을 저한테 말씀주시면 돼요 😊
+
+예를 들어서, '삼성전자에 대해 알려줘'라고 물어보시면 삼성전자에 대한 최신 정보를 기반으로 답변해드릴 수 있어요. 그리고 번역하거나 요약하거나 날씨를 알려주거나 하는 요청도 가능해요!
+
+만약 리스트 메뉴에서 '💬 새로운 대화 시작할래요!'를 선택하면, 이전 대화를 초기화하고 새롭게 시작할 수 있으니 참고해주세요.
+
+그럼 이제 무엇을 도와드릴까요? 🤗"""
+    else:
+        response = await agent.get_response(question=question)
+        END_TIME = time.time()
+        logger.info(f"Length : {len(response)}")
+        logger.info(f"Generation Time : {END_TIME - START_TIME}")
     await send_to_webhook(
         webhook_url="https://changwoo.ngrok.dev/webhook",
-        response_data={"gpt_response": gpt_response, 
+        response_data={"response": response, 
                        "kakao_callback_url": kakao_callback_url}
     )
 
@@ -54,7 +68,7 @@ async def webhook_handler(request: Request):
             카카오 서버로 콜백
         Args:
             request: Webhook 호출 시 전달된 데이터
-                - gpt_response: AI 답변
+                - response: AI 답변
                 - kakao_callback_url: 카카오 콜백 URL
     """
     request_data = await request.json()
@@ -62,7 +76,7 @@ async def webhook_handler(request: Request):
         request_data['kakao_callback_url'],
         json={"version": "2.0", 
               "template": 
-                  {"outputs": [{"simpleText": {"text": request_data['gpt_response']}}]}})
+                  {"outputs": [{"simpleText": {"text": request_data['response']}}]}})
     logger.info(f"call_back: {call_back.status_code}, {call_back.json()}")
     return 'OK'
 
@@ -72,7 +86,7 @@ async def startup_event():
 
 @app.post("/question")
 async def handle_question(request: Request, 
-                          background_tasks: BackgroundTasks):
+                          background_tasks: BackgroundTasks):    
     request_data = await request.json()
     user_request = request_data.get("userRequest")
     agent = app.state.agent

@@ -18,8 +18,11 @@ class ChatbotAgent:
                                         "user_id": "default"}}
         self._build_graph()
         
-    async def get_response(self,
-                           question: str) -> str:
+    async def get_gpt_response(self,
+                               question: str) -> str:
+        if "새로운 대화 시작할래요!" in question:
+            self._build_graph()
+            question = "안녕하세요"
         question = HumanMessage(content=question)
         return self._call_graph([question])["messages"][-1].content
     
