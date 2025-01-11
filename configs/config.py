@@ -126,12 +126,15 @@ prompt_config.answer_with_context = """[참고내용]을 참고해서 [사용자
 답변 : """
 
 #### 웹 검색 관련 프롬프트
-prompt_config.generate_search_info = f"""다음 사용자 요청문을 기반으로 웹에서 자료 검색을 하려고한다.
+prompt_config.generate_search_keyword = f"""다음 사용자 요청문을 기반으로 웹에서 자료 검색을 하려고한다.
 
 지침:
 1. 오늘 날짜를 참고해서 검색어를 생성하라.
 2. 검색어는 반드시 한국어로 작성한다.
 3. 오늘 날짜 : {datetime.now().strftime("%Y-%m-%d")}
+
+이전 검색어:
+{{previous_search_keyword}}
 
 사용자 요청문: 
 {{query}}

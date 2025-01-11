@@ -1,7 +1,5 @@
-import sqlite3
-from loguru import logger
-import os
-from importlib.resources import files
+from . import *
+
 
 class UserData:
     def __init__(self):
@@ -34,7 +32,7 @@ class UserData:
                 value: 업데이트할 값
         """
         if field not in ["personal_info", "personal_preference"]:
-            logger.error(f"잘못된 필드 이름: {field}")
+            print(f"{YELLOW}[db.py] 잘못된 필드 이름: {field}{RESET}")
             return
         
         conn = sqlite3.connect(self.db_path)
@@ -42,7 +40,7 @@ class UserData:
         cursor.execute(f"UPDATE users SET {field} = ? WHERE id = ?", (value, user_id))
         conn.commit()
         conn.close()
-        logger.info(f"{field} 정보 업데이트 완료. 사용자 id : {user_id}")
+        print(f"{YELLOW}[db.py] {field} 정보 업데이트 완료. 사용자 id : {user_id}{RESET}")
                 
     def _initialize_db(self):
         conn = sqlite3.connect(self.db_path)
@@ -73,7 +71,7 @@ class UserData:
         user_info = cursor.fetchone()
         if user_info:
             conn.close()
-            logger.info(f"기존 사용자 데이터를 찾았습니다: {user_info}")
+            print(f"{YELLOW}[db.py] 기존 사용자 데이터를 찾았습니다: {user_info}{RESET}")
             return user_info
         else:
             cursor.execute("INSERT INTO users (id, personal_info, personal_preference) VALUES (?, ?, ?)",
@@ -82,5 +80,5 @@ class UserData:
                             ""))
             conn.commit()
             conn.close()
-            logger.info(f"새 사용자를 추가했습니다: {user_id}")
+            print(f"{YELLOW}[db.py] 새 사용자를 추가했습니다: {user_id}{RESET}")
             return None

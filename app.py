@@ -2,12 +2,13 @@ from modules.agent import ChatbotAgent
 from modules.db import UserData
 from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
+from utils.util import GREEN, RED, RESET
 import uvicorn
 import httpx
 import requests
 import time
-from loguru import logger
 app = FastAPI()
+user_agents = {}
 
 async def get_answer(agent: ChatbotAgent, 
                      question: str, 
@@ -31,14 +32,14 @@ async def get_answer(agent: ChatbotAgent,
 
 예를 들어서, '삼성전자에 대해 알려줘'라고 물어보시면 삼성전자에 대한 최신 정보를 기반으로 답변해드릴 수 있어요. 그리고 번역하거나 요약하는 요청도 가능해요!
 
-만약 리스트 메뉴에서 '💬 새로운 대화 시작할래요!'를 선택하면, 이전 대화를 초기화하고 새롭게 시작할 수 있으니 참고해주세요.
+만약 리스트 메뉴에서 '💬 새로운 대화 시작할래요!'를 선택하면, 이전 대화를 초기화하고 새롭게 시작할 수 있어요. 물론 사용자님의 정보나 답변 선호도와 같은 수집된 정보는 초기화되지 않아요!
 
 그럼 이제 무엇을 도와드릴까요? 🤗"""
     else:
         response = await agent.get_response(question=question)
         END_TIME = time.time()
-        logger.info(f"Length : {len(response)}")
-        logger.info(f"Generation Time : {END_TIME - START_TIME}")
+        print(f"{GREEN}[app.py] Response length : {len(response)}{RESET}")
+        print(f"{GREEN}[app.py] Generation Time : {END_TIME - START_TIME}{RESET}")
     await send_to_webhook(
         webhook_url="https://changwoo.ngrok.dev/webhook",
         response_data={"response": response, 
@@ -59,7 +60,7 @@ async def send_to_webhook(webhook_url: str,
         async with httpx.AsyncClient() as client:
             await client.post(webhook_url, json=response_data)
     except Exception as e:
-        logger.error(f"Webhook 호출 중 에러 발생: {e}")
+        print(f"{RED}Webhook 호출 중 에러 발생: {e}{RESET}")
         
 @app.post("/webhook")
 async def webhook_handler(request: Request):
@@ -76,12 +77,8 @@ async def webhook_handler(request: Request):
         request_data['kakao_callback_url'],
         json={"version": "2.0", 
               "template": {"outputs": [{"simpleText": {"text": request_data['response']}}]}})
-    logger.info(f"call_back: {call_back.status_code}, {call_back.json()}")
+    # print(f"{GREEN}[app.py] call_back: {call_back.status_code}, {call_back.json()}{RESET}")
     return 'OK'
-
-@app.on_event("startup")
-async def startup_event():
-    app.state.agent = ChatbotAgent()
 
 @app.post("/question")
 async def handle_question(request: Request, 
@@ -100,13 +97,20 @@ async def handle_question(request: Request,
     request_data = await request.json()
     user_request = request_data.get("userRequest")
     user_id = user_request.get("user").get("id")
-    agent = app.state.agent
+    
+    # 사용자별로 개별적으로 에이전트 할당
+    if user_id not in user_agents:
+        user_agents[user_id] = ChatbotAgent()
+        print(f"{GREEN}[app.py] 새로운 사용자 에이전트를 생성했습니다. 사용자 id : {user_id}{RESET}")
+        
+    agent = user_agents[user_id]
     agent.set_config(user_id=user_id)
-    agent._build_graph()
     background_tasks.add_task(get_answer, 
                               agent=agent, 
                               question=user_request.get("utterance").strip(), 
                               kakao_callback_url=user_request.get("callbackUrl"))
+    
+    # print(f"{GREEN}[app.py] useCallback:True 를 먼저 리턴합니다. {RESET}")
     return JSONResponse({
         "version": "2.0",
         "useCallback": True
