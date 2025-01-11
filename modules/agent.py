@@ -1,6 +1,6 @@
 from . import *
 from utils.util import google_search_scrape, extract_content
-
+from modules.db import UserData
 class State(MessagesState):
     is_search: str
     is_personal: str
@@ -16,7 +16,7 @@ class ChatbotAgent:
         self.llm = ChatOpenAI(model="gpt-4o")
         self.config = {"configurable": {"thread_id": "default",
                                         "user_id": "default"}}
-        self._build_graph()
+        self.user_data = UserData()
         
     async def get_response(self,
                            question: str) -> str:
@@ -25,8 +25,9 @@ class ChatbotAgent:
     
     def set_config(self,
                    user_id:str):
-        self.config = {"configurable": {"thread_id": user_id,
-                                        "user_id": user_id}}
+        self.user_id = user_id
+        self.config = {"configurable": {"thread_id": self.user_id, # 어차피 카톡은 채팅창 여러개를 띄울수없기에, thread 값도 user_id로 고정
+                                        "user_id": self.user_id}}
         
     def _build_graph(self):
         """
@@ -48,12 +49,27 @@ class ChatbotAgent:
         builder.add_edge("_node_answer", "_node_optimize_memory")
         builder.add_edge("_node_optimize_memory", END)
         ShortTermMemory = MemorySaver()
-        LongTermMemory = InMemoryStore()
+        LongTermMemory = self._get_LongTermMemory()
         self.graph = builder.compile(checkpointer=ShortTermMemory,
                                      store=LongTermMemory)
+        
+    def _get_LongTermMemory(self):
+        LongTermMemory = InMemoryStore()
+        user_info = self.user_data.process_request(self.user_id)
+        if user_info:
+            namespace = ("memories", self.user_id)
+            LongTermMemory.put(namespace=namespace, 
+                               key="personal_info", 
+                               value={"memory":user_info[1]})
+            LongTermMemory.put(namespace=namespace, 
+                               key="personal_preference", 
+                               value={"memory":user_info[2]})
+        return LongTermMemory
+    
 
     @trace_function(enable_print=False, only_func_name=True)
-    def _node_decide_personal(self, state: State):
+    def _node_decide_personal(self, 
+                              state: State):
         """
             Des:
                 개인정보 여부가 있는지 판단하는 노드
@@ -63,7 +79,8 @@ class ChatbotAgent:
         return {"is_personal":[self.llm.invoke(prompt)][0].content.upper()}
 
     @trace_function(enable_print=False, only_func_name=True)
-    def _node_decide_preference(self, state: State):
+    def _node_decide_preference(self, 
+                                state: State):
         """
             Des:
                 답변 선호도 여부가 있는지 판단하는 노드
@@ -73,7 +90,8 @@ class ChatbotAgent:
         return {"is_preference":[self.llm.invoke(prompt)][0].content.upper()}
 
     @trace_function(enable_print=False, only_func_name=True)
-    def _node_decide_search(self, state: State):
+    def _node_decide_search(self, 
+                            state: State):
         """
             Des:
                 검색 여부를 결정하는 노드
@@ -83,9 +101,10 @@ class ChatbotAgent:
         return {"is_search":[self.llm.invoke(prompt)][0].content.upper()}
 
     @trace_function(enable_print=False, only_func_name=True)
-    def _node_write_memory(self, state: State, 
-                            config: RunnableConfig, 
-                            store: BaseStore):
+    def _node_write_memory(self, 
+                           state: State, 
+                           config: RunnableConfig, 
+                           store: BaseStore):
         """
             Des:
                 사용자 메시지를 인식하고, 개인정보/선호도/검색결과 등을 저장하는 노드
@@ -96,14 +115,16 @@ class ChatbotAgent:
         # 개인정보 판단 및 저장
         if state.get("is_personal") == "YES":
             personal_memory = self._get_memory(namespace=namespace, 
-                                                key="personal_info", 
-                                                store=store)
+                                               key="personal_info", 
+                                               store=store)
             system_message = prompt_config.create_memory_prompt.format(memory=personal_memory)
             # print(f"{RED}Write Memory system_message : {system_message}{RESET}")
             memory_prompt = [SystemMessage(content=system_message)] + [HumanMessage(content=query)]
+            result = self.llm.invoke(memory_prompt).content
             store.put(namespace=namespace, 
-                        key="personal_info", 
-                        value={"memory":self.llm.invoke(memory_prompt).content})    
+                      key="personal_info", 
+                      value={"memory":result})    
+            self.user_data.update_user_info(self.user_id, "personal_info", result)
         if state.get("is_preference") == "YES":
             preference_memory = self._get_memory(namespace=namespace, 
                                                  key="personal_preference", 
@@ -111,9 +132,13 @@ class ChatbotAgent:
             system_message = prompt_config.create_preference_prompt.format(preference=preference_memory)
             # print(f"{RED}Create Preference system_message : {system_message}{RESET}")
             preference_prompt = [SystemMessage(content=system_message)] + [HumanMessage(content=query)]
+            result = self.llm.invoke(preference_prompt).content
             store.put(namespace=namespace, 
                       key="personal_preference", 
-                      value={"memory":self.llm.invoke(preference_prompt).content})
+                      value={"memory":result})
+            self.user_data.update_user_info(self.user_id, "personal_preference", result)
+
+
 
         if state.get("is_search") == "YES":
             main_context, suffix_context = self.web_search(query)

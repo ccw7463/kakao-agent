@@ -1,4 +1,5 @@
 from modules.agent import ChatbotAgent
+from modules.db import UserData
 from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
 import uvicorn
@@ -6,7 +7,6 @@ import httpx
 import requests
 import time
 from loguru import logger
-
 app = FastAPI()
 
 async def get_answer(agent: ChatbotAgent, 
@@ -75,8 +75,7 @@ async def webhook_handler(request: Request):
     call_back = requests.post(
         request_data['kakao_callback_url'],
         json={"version": "2.0", 
-              "template": 
-                  {"outputs": [{"simpleText": {"text": request_data['response']}}]}})
+              "template": {"outputs": [{"simpleText": {"text": request_data['response']}}]}})
     logger.info(f"call_back: {call_back.status_code}, {call_back.json()}")
     return 'OK'
 
@@ -86,19 +85,28 @@ async def startup_event():
 
 @app.post("/question")
 async def handle_question(request: Request, 
-                          background_tasks: BackgroundTasks):    
+                          background_tasks: BackgroundTasks):
+    """
+        Des:
+            실제 사용자 요청 처리 함수
+        Args:
+            request: 사용자 요청
+            background_tasks: 백그라운드 작업 태스크
+        Returns:
+            JSONResponse: 카카오 서버에 응답 반환 
+                - version: 2.0 필수
+                - useCallback: True 필수 -> 콜백함수 사용할것을 의미
+    """
     request_data = await request.json()
     user_request = request_data.get("userRequest")
+    user_id = user_request.get("user").get("id")
     agent = app.state.agent
-    agent.set_config(user_id=user_request.get("user").get("id"))
-    
-    # 실제 작업은 백그라운드에서 비동기로 실행
+    agent.set_config(user_id=user_id)
+    agent._build_graph()
     background_tasks.add_task(get_answer, 
                               agent=agent, 
                               question=user_request.get("utterance").strip(), 
                               kakao_callback_url=user_request.get("callbackUrl"))
-
-    # useCallback True를 먼저 리턴해줘야 CallBack 사용 가능
     return JSONResponse({
         "version": "2.0",
         "useCallback": True
