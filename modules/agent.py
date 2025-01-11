@@ -11,7 +11,7 @@ class ChatbotAgent:
     def __init__(self):
         self.LIMIT_LENGTH = 12
         self.SEARCH_RETRY_COUNT = 5
-        self.SEARCH_RESULT_COUNT = 4
+        self.SEARCH_RESULT_COUNT = 6
         self.SEARCH_MINIMUM_RESULT = 1
         self.system_prompt = prompt_config.system_message
         self.search_keyword = ''
@@ -23,11 +23,25 @@ class ChatbotAgent:
         
     async def get_response(self,
                            question: str) -> str:
+        """
+            Des:
+                사용자 요청에 대한 답변을 생성하는 함수
+            Args:
+                question: 사용자 요청
+            Returns:
+                답변
+        """
         question = HumanMessage(content=question)
         return self._call_graph([question])["messages"][-1].content
     
     def set_config(self,
                    user_id:str):
+        """
+            Des:
+                config 설정 함수
+            Args:
+                user_id: 사용자 ID
+        """
         self.config = {"configurable": {"thread_id": user_id, # 어차피 카톡은 채팅창 여러개를 띄울수없기에, thread 값도 user_id로 고정
                                         "user_id": user_id}}
         
@@ -198,7 +212,7 @@ class ChatbotAgent:
             system_message = prompt_config.answer_prompt.format(memory=personal_memory,
                                                                 preference=personal_preference)
             user_prompt = prompt_config.answer_with_context.format(context=main_context,
-                                                                   query=state['messages'][-1].content)
+                                                                   query=state['messages'][-1].content) # TODO 마지막꺼만 쓸지...전체 쓸지 고민중...
             prompt = [SystemMessage(content=self.system_prompt+system_message)] + [HumanMessage(content=user_prompt)]
             print(f"{BLUE}Answer with Search prompt : {prompt[0].content}{RESET}")
             response = self.llm.invoke(prompt).content
@@ -226,6 +240,13 @@ class ChatbotAgent:
 
     @trace_function(enable_print=False, only_func_name=False)
     def _web_search(self):
+        """
+            Des:
+                웹 검색 함수
+        """
+        # TODO 검색부분 손댈게많음.
+        # 1. google_search_scrape를 수행했는데, 개수적으면 다시반복하지만, 이미 수집했던건 두고 새로운걸 추가하는형태로해야하는데, 걍 초기화됨
+        # 2. 검색 결과 전처리 손댈게많음
         prompt = prompt_config.generate_search_keyword.format(query=self.previous_human_messages_query,
                                                               previous_search_keyword=self.search_keyword)
         self.search_keyword = self.llm.invoke(prompt).content
@@ -278,5 +299,9 @@ class ChatbotAgent:
     
     def _postprocess(self,
                      result:str):
+        """
+            Des:
+                답변 후처리 함수
+        """
         result = result.replace("**", "").replace("*", "").replace("_", "")
         return result
