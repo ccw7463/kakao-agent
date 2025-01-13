@@ -8,10 +8,10 @@ readme = "README.md"
 # 포함할 패키지 지정
 packages = [
     { include = "utils" },
-    { include = "notebooks" },
     { include = "configs" },
     { include = "modules" },
     { include = "data" },
+    { include = "public" },
 ]
 
 [tool.poetry.dependencies]
@@ -28,8 +28,6 @@ bs4 = "^0.0.2"
 ml-collections = "^1.0.0"
 langchain-community = "^0.3.14"
 html2text = "^2024.2.26"
-pandas = "^2.2.3"
-openpyxl = "^3.1.5"
 
 
 [build-system]

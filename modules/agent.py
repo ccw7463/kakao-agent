@@ -10,9 +10,7 @@ class State(MessagesState):
 class ChatbotAgent:
     def __init__(self):
         self.LIMIT_LENGTH = 12
-        self.SEARCH_RETRY_COUNT = 5
         self.SEARCH_RESULT_COUNT = 6
-        self.SEARCH_MINIMUM_RESULT = 1
         self.system_prompt = prompt_config.system_message
         self.search_keyword = ''
         self.llm = ChatOpenAI(model="gpt-4o")
@@ -71,8 +69,7 @@ class ChatbotAgent:
         self.graph = builder.compile(checkpointer=ShortTermMemory,
                                      store=LongTermMemory)
         print(f"{GREEN}[agent.py] 그래프 빌드 완료{RESET}")
-        
-    @trace_function(enable_print=False, only_func_name=True)
+
     def _node_initialize(self, 
                          state: State,
                          config: RunnableConfig, 
@@ -110,8 +107,7 @@ class ChatbotAgent:
             else:
                 self.previous_human_messages_query += f"[현재 요청 메시지] : {message}\n"
         print(f"{RED}요청 메시지 취합한거 메시지 : {self.previous_human_messages_query}{RESET}")
-        
-    @trace_function(enable_print=False, only_func_name=True)
+
     def _node_decide_personal(self, 
                               state: State):
         """
@@ -121,7 +117,6 @@ class ChatbotAgent:
         prompt = [SystemMessage(content=prompt_config.decide_personal_prompt)] + [HumanMessage(content=self.previous_human_messages_query)]
         return {"is_personal":[self.llm.invoke(prompt)][0].content.upper()}
 
-    @trace_function(enable_print=False, only_func_name=True)
     def _node_decide_preference(self, 
                                 state: State):
         """
@@ -131,7 +126,6 @@ class ChatbotAgent:
         prompt = [SystemMessage(content=prompt_config.decide_preference_prompt)] + [HumanMessage(content=self.previous_human_messages_query)]
         return {"is_preference":[self.llm.invoke(prompt)][0].content.upper()}
 
-    @trace_function(enable_print=False, only_func_name=True)
     def _node_decide_search(self, 
                             state: State):
         """
@@ -141,7 +135,6 @@ class ChatbotAgent:
         prompt = [SystemMessage(content=prompt_config.decide_search_prompt)] + [HumanMessage(content=self.previous_human_messages_query)]
         return {"is_search":[self.llm.invoke(prompt)][0].content.upper()}
 
-    @trace_function(enable_print=False, only_func_name=True)
     def _node_write_memory(self, 
                            state: State, 
                            config: RunnableConfig, 
@@ -183,12 +176,11 @@ class ChatbotAgent:
             store.put(namespace=namespace, 
                       key="suffix_context", 
                       value={"memory":suffix_context})
-        
-    @trace_function(enable_print=False, only_func_name=True)
+
     def _node_answer(self, 
                      state: State, 
-                    config: RunnableConfig,
-                    store: BaseStore):
+                     config: RunnableConfig,
+                     store: BaseStore):
         """
             Des:
                 사용자 메시지를 인식하고, 답변을 생성하는 노드
@@ -212,8 +204,8 @@ class ChatbotAgent:
             system_message = prompt_config.answer_prompt.format(memory=personal_memory,
                                                                 preference=personal_preference)
             user_prompt = prompt_config.answer_with_context.format(context=main_context,
-                                                                   query=state['messages'][-1].content) # TODO 마지막꺼만 쓸지...전체 쓸지 고민중...
-            prompt = [SystemMessage(content=self.system_prompt+system_message)] + [HumanMessage(content=user_prompt)]
+                                                                   query=state['messages'][-1].content) # TODO 향후 고려필요
+            prompt = [SystemMessage(content=self.system_prompt+system_message)] + state['messages'][:-1] + [HumanMessage(content=user_prompt)] # TODO 향후 고려필요
             print(f"{BLUE}Answer with Search prompt : {prompt[0].content}{RESET}")
             response = self.llm.invoke(prompt).content
             return {"messages": AIMessage(content=self._postprocess(response) + "\n" + suffix_context)}
@@ -225,7 +217,6 @@ class ChatbotAgent:
             response = self.llm.invoke(prompt).content
             return {"messages": AIMessage(content=self._postprocess(response))}
 
-    @trace_function(enable_print=False, only_func_name=True)
     def _node_optimize_memory(self, 
                               state: State):
         """
@@ -238,27 +229,21 @@ class ChatbotAgent:
         else:
             return {"messages": state["messages"]}
 
-    @trace_function(enable_print=False, only_func_name=False)
     def _web_search(self):
         """
             Des:
                 웹 검색 함수
         """
-        # TODO 검색부분 손댈게많음.
-        # 1. google_search_scrape를 수행했는데, 개수적으면 다시반복하지만, 이미 수집했던건 두고 새로운걸 추가하는형태로해야하는데, 걍 초기화됨
-        # 2. 검색 결과 전처리 손댈게많음
         prompt = prompt_config.generate_search_keyword.format(query=self.previous_human_messages_query,
                                                               previous_search_keyword=self.search_keyword)
         self.search_keyword = self.llm.invoke(prompt).content
-        for _ in range(self.SEARCH_RETRY_COUNT):
-            results = google_search_scrape(self.search_keyword, num_results=self.SEARCH_RESULT_COUNT)
-            if len(results) >= self.SEARCH_MINIMUM_RESULT:
-                break
+        results = google_search_scrape(self.search_keyword, SEARCH_RESULT_COUNT=self.SEARCH_RESULT_COUNT)
         print(f"{RED}검색어 : {self.search_keyword}\n검색결과 : {len(results)}\n{RESET}")
         main_context = ''
         suffix_context = ''
         for idx, result in enumerate(results):
             link = result.get("link")
+            date = result.get("date")
             try:
                 desc, detailed_content = extract_content(link)
             except:
@@ -274,6 +259,7 @@ class ChatbotAgent:
 제목 : {result.get('title')}
 링크 : {link}
 설명 : {desc}
+날짜 : {date}
 """
         return main_context, suffix_context
     

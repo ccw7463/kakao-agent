@@ -5,6 +5,9 @@ from langchain_community.document_loaders import AsyncHtmlLoader
 from langchain_community.document_transformers import Html2TextTransformer
 import requests
 from bs4 import BeautifulSoup
+import json
+import re
+from datetime import datetime, timedelta
 
 RESET = "\033[0m"        # Reset to default
 RED = "\033[91m"         # Bright Red
@@ -15,35 +18,7 @@ PINK = "\033[95m"         # Bright Pink
 
 def set_env():
     load_dotenv()
-    os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGCHAIN_API_KEY")
     os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
-    os.environ["WEATHER_DECODING_API_KEY"] = os.getenv("WEATHER_DECODING_API_KEY")
-    os.environ["LANGCHAIN_TRACING_V2"] = "true"
-    os.environ["LANGCHAIN_PROJECT"] = "langchain-academy"
-    
-def trace_function(enable_print=True, 
-                   only_func_name=False):
-    def wrapper(func):
-        @wraps(func)
-        def wrapped(*args, **kwargs):  # 이름을 "wrapped"로 변경하여 구분
-            if enable_print:
-                if only_func_name:
-                    print(f"{GREEN}\n🚀 Passing Through [{func.__name__}] ..{RESET}")
-                else:
-                    print(f"{GREEN}\n🚀 Passing Through [{func.__name__}] ..{RESET}")
-                    print(f"{RED}\n#### [Input State]{RESET}")
-                    print(f"  args: {args}")
-                    # print(f"  kwargs: {kwargs}")
-            result = func(*args, **kwargs)  # 원본 함수 호출
-            if enable_print:
-                if only_func_name:
-                    pass
-                else:
-                    print(f"{BLUE}\n#### [Output State]{RESET}")
-                    print(f"  result: {result}")
-            return result
-        return wrapped
-    return wrapper
     
 def extract_content(link:str) -> tuple[str, str]:
     """
@@ -63,14 +38,43 @@ def extract_content(link:str) -> tuple[str, str]:
     return desc,detailed_content
 
 
-def google_search_scrape(query:str, 
-                         num_results:int=3) -> list:
+def parse_relative_date(relative_date: str) -> str:
     """
         Des:
-            Google 검색 결과를 스크래핑하는 함수
+            날짜 표현 변환 함수
+        Args:
+            relative_date (str): 상대적인 날짜 표현 (~시간 전, ~일 전 표현)
+        Returns:
+            str: 절대 날짜 (YYYY. MM. DD.)
+    """
+    now = datetime.now()
+
+    if "시간 전" in relative_date:
+        hours = int(re.search(r"(\d+)", relative_date).group(1))
+        result_date = now - timedelta(hours=hours)
+    elif "일 전" in relative_date:
+        days = int(re.search(r"(\d+)", relative_date).group(1))
+        result_date = now - timedelta(days=days)
+    elif "분 전" in relative_date:
+        minutes = int(re.search(r"(\d+)", relative_date).group(1))
+        result_date = now - timedelta(minutes=minutes)
+    else:
+        return relative_date
+
+    return result_date.strftime("%Y. %m. %d.")
+
+def google_search_scrape(query: str, 
+                         SEARCH_RESULT_COUNT: int = 3,
+                         SEARCH_RETRY_COUNT : int = 3,
+                         SEARCH_MINIMUM_RESULT: int = 1) -> list:
+    """
+        Des:
+            Google 검색 결과를 스크래핑하는 함수 (날짜 포함)
         Args:
             query (str): 검색할 키워드
-            num_results (int): 검색 결과 수
+            SEARCH_RESULT_COUNT (int): 검색 결과 수
+            SEARCH_RETRY_COUNT (int): 검색 시도 횟수
+            SEARCH_MINIMUM_RESULT (int): 최소 검색 결과 수
         Returns:
             list: 검색 결과를 담은 리스트
     """
@@ -78,14 +82,28 @@ def google_search_scrape(query:str,
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
     }
     query = query.replace(" ", "+")
-    url = f"https://www.google.com/search?q={query}&num={num_results}"
-    response = requests.get(url, headers=headers)
-    soup = BeautifulSoup(response.text, "html.parser")
+    url = f"https://www.google.com/search?q={query}&num={SEARCH_RESULT_COUNT}"
     results = []
-    for g in soup.find_all("div", class_="tF2Cxc"):
-        title = g.find("h3").text.upper()
-        link = g.find("a")["href"]
-        if link.endswith(".pdf"):
-            continue
-        results.append({"title": title, "link": link})
+    for _ in range(SEARCH_RETRY_COUNT):
+        response = requests.get(url, headers=headers)
+        soup = BeautifulSoup(response.text, "html.parser")
+        for g in soup.find_all("div", class_="tF2Cxc"):
+            title = g.find("h3").text.upper()
+            link = g.find("a")["href"]
+            date_span = g.find("span", class_="LEwnzc Sqrs4e")
+            date_text = date_span.text if date_span else "No date available"
+            if "전" in date_text:
+                date = parse_relative_date(date_text)
+            else:
+                date = date_text
+
+            if link.endswith(".pdf"):
+                continue
+            results.append({
+                "title": title,
+                "link": link,
+                "date": date.replace(" — ","").strip()
+            })
+        if len(results) >= SEARCH_MINIMUM_RESULT:
+            break
     return results
