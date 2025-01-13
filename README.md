@@ -1,5 +1,5 @@
 
-# kakaoChatAgent
+# Minerva - kakao Chatbot Agent
 
 <img src="./public/minerva.png" alt="made by DALL-E" width="350">
 
