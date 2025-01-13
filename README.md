@@ -90,3 +90,10 @@ _파이썬 프로젝트 의존성 관리와 배포를 위해 `poetry`를 사용�
     ```bash
     poetry install
     ```
+
+6. 실행
+
+   ```bash
+   poetry run python app.py
+   ```
+   
