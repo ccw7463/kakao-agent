@@ -40,6 +40,10 @@ Langgraph 기반으로 카카오톡 챗봇을 구현해보았습니다.
 
 - 웹 검색 기능 최적화
 
+## Demo
+[![kakaoChatAgent Test](./public/snapshot.png)](https://youtu.be/VluxN_yeFmA)
+
+
 ## Project Structure
 
 - `configs` : 프롬프트 템플릿 저장 레포
