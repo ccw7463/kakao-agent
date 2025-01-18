@@ -33,6 +33,9 @@ webdriver-manager = "^4.0.2"
 playwright = "^1.49.1"
 
 
+[tool.poetry.group.dev.dependencies]
+black = "^24.10.0"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

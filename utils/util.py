@@ -1,56 +1,53 @@
 import os
 import re
-import json
+import random
 import requests
-import platform
-from functools import wraps
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
-from glob import glob
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
+from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright
 from langchain_community.document_loaders import AsyncHtmlLoader
 from langchain_community.document_transformers import Html2TextTransformer
 
-RESET = "\033[0m"        # Reset to default
-RED = "\033[91m"         # Bright Red
-BLUE = "\033[94m"        # Bright Blue
-GREEN = "\033[92m"        # Bright Green
-YELLOW = "\033[93m"       # Bright Yellow
-PINK = "\033[95m"         # Bright Pink
+RESET = "\033[0m"  # Reset to default
+RED = "\033[91m"  # Bright Red
+BLUE = "\033[94m"  # Bright Blue
+GREEN = "\033[92m"  # Bright Green
+YELLOW = "\033[93m"  # Bright Yellow
+PINK = "\033[95m"  # Bright Pink
 
 def set_env():
     load_dotenv()
     os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
-    
-def extract_content(link:str) -> tuple[str, str]:
+
+
+def extract_content(link: str) -> tuple[str, str]:
     """
-        Des:
-            주어진 링크에 대한 내용 추출하는 함수
-        Args:
-            link (str): 추출할 링크
-        Returns:
-            tuple[str, str]: 추출된 내용을 담은 튜플
+    Des:
+        주어진 링크에 대한 내용 추출하는 함수
+    Args:
+        link (str): 추출할 링크
+    Returns:
+        tuple[str, str]: 추출된 내용을 담은 튜플
     """
     loader = AsyncHtmlLoader(link)
     docs = loader.load()
     html2text = Html2TextTransformer()
-    docs_transformed = html2text.transform_documents(docs,metadata_type="html")
-    desc = docs_transformed[0].metadata.get('description',"")
+    docs_transformed = html2text.transform_documents(docs, metadata_type="html")
+    desc = docs_transformed[0].metadata.get("description", "")
     detailed_content = docs_transformed[0].page_content
-    return desc,detailed_content
+    return desc, detailed_content
 
 
 def parse_relative_date(relative_date: str) -> str:
     """
-        Des:
-            날짜 표현 변환 함수
-        Args:
-            relative_date (str): 상대적인 날짜 표현 (~시간 전, ~일 전 표현)
-        Returns:
-            str: 절대 날짜 (YYYY. MM. DD.)
+    Des:
+        날짜 표현 변환 함수
+    Args:
+        relative_date (str): 상대적인 날짜 표현 (~시간 전, ~일 전 표현)
+    Returns:
+        str: 절대 날짜 (YYYY. MM. DD.)
     """
     now = datetime.now()
 
@@ -68,6 +65,220 @@ def parse_relative_date(relative_date: str) -> str:
 
     return result_date.strftime("%Y. %m. %d.")
 
+
+from multiprocessing import Process, Queue
+
+def _run_playwright_in_process(search_term: str, SEARCH_RESULT_COUNT: int, queue: Queue):
+    """
+    Des:
+        별도 프로세스에서 실행될 Playwright 함수
+            - 랭그래프가 동기식으로 실행되는데, 웹스크래핑시 비동기로 계속 실행돼서
+            - 멀티프로세싱을 사용하여 Playwright를 별도의 프로세스에서 실행하여 최종적으로 동기식 실행
+    Args:
+        search_term (str): 검색할 키워드
+        SEARCH_RESULT_COUNT (int): 검색 결과 수
+        queue (Queue): 결과를 전달할 큐
+    """
+    try:
+        with sync_playwright() as p:
+            # 기존 google_search_scrape 로직
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                ],
+            )
+            context = browser.new_context(
+                viewport={"width": 1920, "height": 1080},
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                java_script_enabled=True,
+            )
+            page = context.new_page()
+            page.add_init_script(
+                """
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => false,
+                });
+            """
+            )
+            
+            try:
+                page.wait_for_timeout(2000 + random.randint(500, 1500))
+                page.goto("https://www.google.com")
+                page.wait_for_timeout(1000 + random.randint(500, 1000))
+                page.type("#APjFqb", search_term, delay=100)
+                page.wait_for_timeout(500)
+                page.press("#APjFqb", "Enter")
+                page.wait_for_selector("div.yuRUbf", timeout=10000)
+                page.wait_for_timeout(2000)
+
+                results = []
+                search_results = page.query_selector_all("div.yuRUbf")
+                for result in search_results[:SEARCH_RESULT_COUNT]:
+                    title_elem = result.query_selector("h3.LC20lb")
+                    title = title_elem.inner_text() if title_elem else ""
+                    link_elem = result.query_selector("a")
+                    link = link_elem.get_attribute("href") if link_elem else ""
+                    results.append({"title": title, "link": link})
+                queue.put(results)
+            except Exception as e:
+                print(f"에러 발생: {str(e)}")
+                page.screenshot(path=f'{datetime.now().strftime("%Y%m%d_%H%M%S")}_error.png')
+                queue.put(None)
+            finally:
+                browser.close()
+    except Exception as e:
+        print(f"Playwright 초기화 에러: {str(e)}")
+        queue.put(None)
+
+def google_search_scrape(search_term: str, SEARCH_RESULT_COUNT: int):
+    """멀티프로세싱을 사용하는 메인 함수"""
+    queue = Queue()
+    process = Process(target=_run_playwright_in_process, 
+                    args=(search_term, SEARCH_RESULT_COUNT, queue))
+    process.start()
+    results = queue.get()  # 결과를 기다림
+    process.join()
+    
+    if results is None:
+        raise Exception("검색 실패")
+    return results
+
+'''
+def google_search_scrape(search_term: str, SEARCH_RESULT_COUNT: int):
+    with sync_playwright() as p:
+        # 브라우저 초기화
+        print("브라우저 초기화")
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+            ],
+        )
+
+        # 브라우저 컨텍스트에 추가 설정
+        print("브라우저 컨텍스트 초기화")
+        context = browser.new_context(
+            viewport={"width": 1920, "height": 1080},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            java_script_enabled=True,
+        )
+
+        page = context.new_page()
+
+        # webdriver 제거
+        print("webdriver 제거")
+        page.add_init_script(
+            """
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => false,
+            });
+        """
+        )
+
+        try:
+            print("구글 페이지 이동")
+            page.wait_for_timeout(2000 + random.randint(500, 1500))
+            page.goto("https://www.google.com")
+            print("검색어 입력")
+            page.wait_for_timeout(1000 + random.randint(500, 1000))
+            page.type("#APjFqb", search_term, delay=100)
+            print("엔터 입력")
+            page.wait_for_timeout(500)
+            page.press("#APjFqb", "Enter")
+            print("검색 결과 로드 대기")
+            page.wait_for_selector("div.yuRUbf", timeout=10000)
+            print("검색 결과 로드 완료")
+            page.wait_for_timeout(2000)
+
+            results = []
+            search_results = page.query_selector_all("div.yuRUbf")
+            for result in search_results[:SEARCH_RESULT_COUNT]:
+                title_elem = result.query_selector("h3.LC20lb")
+                title = title_elem.inner_text() if title_elem else ""
+                link_elem = result.query_selector("a")
+                link = link_elem.get_attribute("href") if link_elem else ""
+                results.append({"title": title, "link": link})
+            return results
+
+        except Exception as e:
+            print(f"에러 발생: {str(e)}")
+            page.screenshot(
+                path=f'{datetime.now().strftime("%Y%m%d_%H%M%S")}_error.png'
+            )
+            raise e
+        finally:
+            browser.close()
+'''
+
+'''비동기부분
+async def google_search_scrape(search_term: str, SEARCH_RESULT_COUNT: int):
+    async with async_playwright() as p:
+
+        # 브라우저 초기화
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+            ],
+        )
+
+        # 브라우저 컨텍스트에 추가 설정
+        context = await browser.new_context(
+            viewport={"width": 1920, "height": 1080},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            java_script_enabled=True,
+        )
+
+        page = await context.new_page()
+
+        # webdriver 제거
+        await page.add_init_script(
+            """
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => false,
+            });
+        """
+        )
+
+        try:
+            await page.wait_for_timeout(2000 + random.randint(500, 1500))
+            await page.goto("https://www.google.com")
+            await page.wait_for_timeout(1000 + random.randint(500, 1000))
+            await page.type("#APjFqb", search_term, delay=100)
+            await page.wait_for_timeout(500)
+            await page.press("#APjFqb", "Enter")
+            await page.wait_for_selector("div.yuRUbf", timeout=10000)
+            await page.wait_for_timeout(2000)
+            results = []
+            search_results = await page.query_selector_all("div.yuRUbf")
+            for result in search_results[:SEARCH_RESULT_COUNT]:
+                title_elem = await result.query_selector("h3.LC20lb")
+                title = await title_elem.inner_text() if title_elem else ""
+                link_elem = await result.query_selector("a")
+                link = await link_elem.get_attribute("href") if link_elem else ""
+                results.append({"title": title, "link": link})
+            return results
+
+        except Exception as e:
+            await page.screenshot(
+                path=f'{datetime.now().strftime("%Y%m%d_%H%M%S")}_error.png'
+            )
+            raise e
+        finally:
+            await browser.close()
+'''
+
+'''현재 미사용
 def google_search_scrape(query: str, 
                         SEARCH_RESULT_COUNT: int = 3,
                         SEARCH_RETRY_COUNT : int = 3,
@@ -112,98 +323,4 @@ def google_search_scrape(query: str,
         if len(results) >= SEARCH_MINIMUM_RESULT:
             break
     return results
-
-
-def initialize_browser(use_headless: bool = False, 
-                    window_size: str = '1920,1080', 
-                    remote_debugging_port: int = 9222, 
-                    disable_images: bool = True, 
-                    no_sandbox: bool = True, 
-                    disable_dev_shm_usage: bool = True, 
-                    disable_gpu: bool = True, 
-                    disable_extensions: bool = True, 
-                    disable_software_rasterizer: bool = True,
-                    user_agent: str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-) -> webdriver.Chrome:
-    """
-        Des:
-            Chrome 브라우저를 초기화하는 함수
-        Args:
-            use_headless (bool): 헤드리스 모드로 실행할지 여부 (기본값: False)
-            no_sandbox (bool): 샌드박스를 비활성화할지 여부 (기본값: True)
-            window_size (str): 브라우저 창 크기 설정 (기본값: '1920,1080')
-            remote_debugging_port (int): 원격 디버깅에 사용할 포트 번호 (기본값: 9222)
-            disable_images (bool): 이미지 로드를 비활성화할지 여부 (기본값: True)
-            disable_dev_shm_usage (bool): /dev/shm 사용을 비활성화할지 여부 (기본값: True)
-            disable_gpu (bool): GPU 가속을 비활성화할지 여부 (기본값: True)
-            disable_extensions (bool): 확장 프로그램을 비활성화할지 여부 (기본값: True)
-            disable_software_rasterizer (bool): 소프트웨어 래스터라이저를 비활성화할지 여부 (기본값: True)
-        Returns:
-            webdriver.Chrome: 초기화된 Chrome 브라우저 객체
-    """
-    options = webdriver.ChromeOptions()
-    
-    # 도커환경 필수옵션
-    options.add_argument('--disable-setuid-sandbox')
-    options.add_argument('--disable-infobars')
-    options.add_argument('--disable-notifications')
-    options.add_argument('--disable-popup-blocking')
-    
-    if use_headless:
-        options.add_argument('--headless=new')
-    if no_sandbox:
-        options.add_argument('--no-sandbox')
-    if disable_dev_shm_usage:
-        options.add_argument('--disable-dev-shm-usage')
-    if disable_gpu:
-        options.add_argument('--disable-gpu')
-    if remote_debugging_port:
-        options.add_argument(f'--remote-debugging-port={remote_debugging_port}')
-    if disable_extensions:
-        options.add_argument('--disable-extensions')
-    if disable_software_rasterizer:
-        options.add_argument('--disable-software-rasterizer')
-    if disable_images:
-        options.add_argument('--blink-settings=imagesEnabled=false')
-    if window_size:
-        options.add_argument(f'--window-size={window_size}')
-    if user_agent:
-        options.add_argument(f'--user-agent={user_agent}')
-    
-    try:
-        # 현재 OS 확인
-        system_os = platform.system().lower()
-        
-        # 리눅스 OS의 경우 ChromeDriver 로드
-        if system_os == 'linux':
-            # print("구동중인 OS는 Linux입니다.")
-            # print("ChromeDriver가 존재합니다. 초기화 진행합니다.")
-            home_path = os.path.expanduser('~')
-            chrome_driver_path = os.path.join(home_path, '.wdm', 'drivers', 'chromedriver', 'linux64')
-            latest_version = sorted(os.listdir(chrome_driver_path))[-1]  # 가장 최신 버전 선택
-            chrome_driver_path = os.path.join(chrome_driver_path, latest_version, 'chromedriver')
-            
-        # 윈도우 OS의 경우 ChromeDriver 로드
-        elif system_os == 'windows':
-            chrome_driver_path_pattern = 'C:/Users/chang/Desktop/WORKSPACE/**/chromedriver.exe'
-            matching_files = glob(chrome_driver_path_pattern, recursive=True)
-            if not matching_files:
-                raise FileNotFoundError("ChromeDriver 파일을 찾을 수 없습니다.")
-            chrome_driver_path = sorted(matching_files)[-1]
-            
-        # Mac OS의 경우 ChromeDriver 로드
-        elif system_os == "darwin":
-            chrome_driver_path = None
-            
-        # 지원되지 않는 OS의 경우 예외 발생
-        else:
-            raise EnvironmentError(f"지원되지 않는 OS: {system_os}")
-
-        # print("ChromeDriver가 존재합니다. 초기화 진행합니다.")
-        browser = webdriver.Chrome(service=Service(chrome_driver_path), options=options)
-
-    except Exception as e:
-        # ChromeDriver가 없을 경우 설치 과정 실행
-        print(f"ChromeDriver가 존재하지 않습니다. 설치 과정을 진행합니다. 오류: {e}")
-        browser = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-    return browser
+'''
