@@ -1,5 +1,5 @@
 
-# kakaoChatAgent
+# Minerva - kakao Chatbot Agent
 
 <img src="./public/minerva.png" alt="made by DALL-E" width="350">
 
@@ -41,6 +41,9 @@ Langgraph 기반으로 카카오톡 챗봇을 구현해보았습니다.
 - 웹 검색 기능 최적화
 
 ## Demo
+
+- 유튜브 링크와 연결됩니다.
+
 [![kakaoChatAgent Test](./public/snapshot.png)](https://youtu.be/VluxN_yeFmA)
 
 
@@ -87,3 +90,10 @@ _파이썬 프로젝트 의존성 관리와 배포를 위해 `poetry`를 사용�
     ```bash
     poetry install
     ```
+
+6. 실행
+
+   ```bash
+   poetry run python app.py
+   ```
+   
