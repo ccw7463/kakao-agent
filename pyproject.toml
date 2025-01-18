@@ -28,6 +28,9 @@ bs4 = "^0.0.2"
 ml-collections = "^1.0.0"
 langchain-community = "^0.3.14"
 html2text = "^2024.2.26"
+selenium = "^4.27.1"
+webdriver-manager = "^4.0.2"
+playwright = "^1.49.1"
 
 
 [build-system]
