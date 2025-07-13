@@ -1,8 +1,5 @@
 
-# Minerva - kakao Chatbot Agent
-
-<img src="./public/minerva.png" alt="made by DALL-E" width="350">
-
+# kakao Chatbot Agent
 
 ## About The Project
 
